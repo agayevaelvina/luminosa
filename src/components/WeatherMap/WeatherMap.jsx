@@ -9,10 +9,21 @@ import { formatTemp, getTempColor } from '../../utils/weatherHelpers';
 import { useWeatherStore } from '../../context/WeatherContext';
 import styles from './WeatherMap.module.css';
 
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerShadow from 'leaflet/dist/images/marker-shadow.png';
+
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: markerIcon2x,
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
+});
+
 function tempIcon(temp, isActive, isTracked) {
   const color = getTempColor(temp);
   const size = isActive ? 18 : 14;
-  
+
   const ring = isActive
     ? '0 0 0 3px rgba(59,158,255,.6)'
     : isTracked
@@ -21,7 +32,7 @@ function tempIcon(temp, isActive, isTracked) {
 
   return L.divIcon({
     className: styles.customMarker,
-    html: `<div style="background:${color}; width:${size}px; height:${size}px; border-radius:50%; border:2px solid #fff; box-shadow:${ring}"></div>`,
+    html: `<div style="background:${color};width:${size}px;height:${size}px;border-radius:50%;border:2px solid #fff;box-shadow:${ring}"></div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
@@ -29,14 +40,14 @@ function tempIcon(temp, isActive, isTracked) {
 
 function FitBounds({ cities }) {
   const map = useMap();
-
+  
   useEffect(() => {
     if (cities.length > 0) {
       const bounds = cities.map((c) => [c.lat, c.lon]);
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 3 });
     }
   }, [cities, map]);
-
+  
   return null;
 }
 
@@ -53,9 +64,7 @@ function CityMarker({ city, isActive, isTracked, onSelect }) {
   const [weather, setWeather] = useState(null);
 
   useEffect(() => {
-    getCurrentWeather(city.name)
-      .then(setWeather)
-      .catch(() => {});
+    getCurrentWeather(city.name).then(setWeather).catch(() => {});
   }, [city.name]);
 
   const temp = weather?.main?.temp ?? city.climate?.base ?? 15;
@@ -117,7 +126,7 @@ export function WeatherMap({ activeCity }) {
             <span className={`${styles.legendDot} ${styles.legendTracked}`} /> İzlənir
           </span>
           <span className={styles.legendItem}>
-            <span className={styles.legendDot} /> Mövcud
+            <span className={`${styles.legendDot}`} /> Mövcud
           </span>
         </div>
       </div>
