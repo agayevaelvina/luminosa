@@ -70,15 +70,54 @@ function hourTemp(city, hourOffset = 0) {
   return Math.round((city.climate.base + dayWave * (city.climate.amplitude / 2) + noise) * 10) / 10;
 }
 
-function pickWeather(city, offset = 0) {
-  const seed = hash(city.name + offset);
-  const idx = seed % WEATHER_TYPES.length;
-  const type = WEATHER_TYPES[idx];
+/**
+ * Temperaturə uyğun hava şəraiti seçir.
+ * @param {number} temp - Celsius
+ * @param {object} city
+ * @param {number} offset
+ */
+function pickWeatherForTemp(temp, city, offset = 0) {
+  const seed = hash(city.name + String(offset));
+  const rand = seededRandom(seed);
 
-  if (city.climate.base > 32 && type.main === 'Snow') return WEATHER_TYPES[0];
-  if (city.climate.base < 5 && type.main === 'Clear' && seed % 3 === 0) return WEATHER_TYPES[5];
+  const clear = WEATHER_TYPES.find((w) => w.main === 'Clear');
+  const cloudsLight = WEATHER_TYPES.find((w) => w.id === 801);
+  const clouds = WEATHER_TYPES.find((w) => w.id === 802);
+  const rain = WEATHER_TYPES.find((w) => w.main === 'Rain');
+  const mist = WEATHER_TYPES.find((w) => w.main === 'Mist');
+  const snow = WEATHER_TYPES.find((w) => w.main === 'Snow');
 
-  return type;
+  if (temp <= -5) {
+    if (rand < 0.55) return snow;
+    if (rand < 0.85) return clouds;
+    return clear;
+  }
+
+  if (temp <= 2) {
+    if (rand < 0.25) return snow;
+    if (rand < 0.5) return clouds;
+    if (rand < 0.75) return mist;
+    return rain;
+  }
+
+  if (temp <= 10) {
+    const pool = [clouds, cloudsLight, mist, rain, clear];
+    return pool[Math.floor(rand * pool.length)];
+  }
+
+  if (temp <= 22) {
+    const pool = [clear, cloudsLight, clouds, rain, cloudsLight, clear];
+    return pool[Math.floor(rand * pool.length)];
+  }
+
+  if (temp <= 32) {
+    const pool = [clear, clear, cloudsLight, clouds, rain];
+    return pool[Math.floor(rand * pool.length)];
+  }
+
+  // Çox isti — əsasən açıq/buludlu, qar/yağış olmaz
+  const pool = [clear, clear, clear, cloudsLight, clouds];
+  return pool[Math.floor(rand * pool.length)];
 }
 
 function buildMain(city, temp) {
@@ -96,8 +135,8 @@ function buildMain(city, temp) {
 export function generateCurrentWeather(cityName) {
   const city = getCityOrThrow(cityName);
   const temp = hourTemp(city, 0);
-  const weather = pickWeather(city, 0);
-  const windDeg = (hash(city.name + 'wind') % 360);
+  const weather = pickWeatherForTemp(temp, city, 0);
+  const windDegValue = (hash(city.name + 'wind') % 360);
   const windSpeed = Math.round((2 + seededRandom(hash(city.name + 'ws')) * 12) * 10) / 10;
   const uvIndex = city.climate.base > 30
     ? Math.round(8 + seededRandom(hash(city.name + 'uv')) * 3)
@@ -109,7 +148,7 @@ export function generateCurrentWeather(cityName) {
     base: 'stations',
     main: buildMain(city, temp),
     visibility: Math.round(8000 + seededRandom(hash(city.name + 'vis')) * 12000),
-    wind: { speed: windSpeed, deg: windDeg },
+    wind: { speed: windSpeed, deg: windDegValue },
     clouds: { all: weather.main === 'Clear' ? 5 : 40 + (hash(city.name) % 50) },
     dt: Math.floor(Date.now() / 1000),
     sys: { country: city.country, sunrise: 0, sunset: 0 },
@@ -127,13 +166,13 @@ export function generateHourlyForecast(cityName) {
 
   const list = Array.from({ length: 24 }, (_, i) => {
     const temp = hourTemp(city, i);
-    const weather = pickWeather(city, i);
+    const weather = pickWeatherForTemp(temp, city, i);
     return {
       dt: Math.floor(Date.now() / 1000) + i * 3600,
       main: { temp, feels_like: temp - 1 + seededRandom(hash(city.name + i)) },
       weather: [{ ...weather }],
       clouds: { all: 30 + (i % 40) },
-      wind: { speed: 2 + seededRandom(hash(city.name + 'h' + i)) * 8, deg: (windDeg(city, i)) },
+      wind: { speed: 2 + seededRandom(hash(city.name + 'h' + i)) * 8, deg: (getWindDeg(city, i)) },
       pop: weather.main === 'Rain' ? 0.4 + seededRandom(hash(city.name + 'pop' + i)) * 0.5 : seededRandom(hash(city.name + 'pop' + i)) * 0.25,
       dt_txt: '',
     };
@@ -142,7 +181,7 @@ export function generateHourlyForecast(cityName) {
   return { cod: '200', message: 0, cnt: 24, list, city: { name: city.name, country: city.country } };
 }
 
-function windDeg(city, i) {
+function getWindDeg(city, i) {
   return (hash(city.name + 'wd' + i) % 360);
 }
 
@@ -155,13 +194,14 @@ export function generateDailyForecast(cityName) {
     const baseTemp = city.climate.base + Math.sin(i * 0.8) * 3;
     const min = Math.round((baseTemp - city.climate.amplitude / 2 + seededRandom(hash(city.name + 'dmin' + i)) * 2) * 10) / 10;
     const max = Math.round((baseTemp + city.climate.amplitude / 2 + seededRandom(hash(city.name + 'dmax' + i)) * 2) * 10) / 10;
-    const weather = pickWeather(city, i + 10);
+    const dayTemp = (min + max) / 2;
+    const weather = pickWeatherForTemp(dayTemp, city, i + 10);
     const date = new Date();
     date.setDate(date.getDate() + i);
 
     return {
       dt: Math.floor(date.getTime() / 1000),
-      temp: { day: (min + max) / 2, min, max, night: min - 2, eve: max - 1, morn: min + 1 },
+      temp: { day: dayTemp, min, max, night: min - 2, eve: max - 1, morn: min + 1 },
       weather: [{ ...weather }],
       pop: weather.main === 'Rain' ? 0.5 : 0.1 + seededRandom(hash(city.name + 'dp' + i)) * 0.3,
       humidity: city.climate.humidity,
